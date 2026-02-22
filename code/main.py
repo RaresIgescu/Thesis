@@ -34,8 +34,8 @@ scaler = MinMaxScaler()
 inputData_scaled = scaler.fit_transform(inputData)
 
 # Print the distribution of attack types and the range of the scaled input data to verify that the preprocessing steps have been applied correctly.
-# The first print will show a list of attack types and their corresponding counts in the dataset
-# The second print will show the minimum and maximum values of the scaled input data, which should be between 0 and 1 due to the use of MinMaxScaler.
+# The first print statement will show us how many instances of normal traffic and different attack types are present in the dataset, 
+# While the second print statement will confirm that the input data has been scaled to a range between 0 and 1.
 print(data['Attack Type'].value_counts())
 print(inputData_scaled.min(), inputData_scaled.max())
 
