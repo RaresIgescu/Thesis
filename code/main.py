@@ -24,9 +24,9 @@ data.replace([np.inf, -np.inf], np.nan, inplace=True)
 data.dropna(inplace=True)
 
 # Encode the labels in a binary format: 0 for normal traffic and 1 for any kind of attack 
-answer = data['Attack Type'].apply(lambda x: 0 if x == 'Normal Traffic' else 1) 
+answer = data.loc[:, 'Attack Type'].apply(lambda x: 0 if x == 'Normal Traffic' else 1) 
 
-# Drop the last comun named 'Attack Type'
+# Drop the last column named 'Attack Type'
 inputData = data.drop('Attack Type', axis=1)
 
 # We need to scale the input data to ensure that all features are on the same scale, which can help the AI agent learn more effectively.
@@ -36,10 +36,10 @@ inputData_scaled = scaler.fit_transform(inputData)
 # Print the distribution of attack types and the range of the scaled input data to verify that the preprocessing steps have been applied correctly.
 # The first print statement will show us how many instances of normal traffic and different attack types are present in the dataset, 
 # While the second print statement will confirm that the input data has been scaled to a range between 0 and 1.
-print(data['Attack Type'].value_counts())
+print(data.loc[:, 'Attack Type'].value_counts())
 print(inputData_scaled.min(), inputData_scaled.max())
 
-# === Define the environment ===
+# === DEFINE THE ENVIRONMENT ===
 
 # === Define the agent ===
 
