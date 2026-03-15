@@ -7,7 +7,7 @@ from stable_baselines3 import DQN
 from stable_baselines3.common.monitor import Monitor
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
-import time
+import joblib
 
 # === LOAD AND PREPROCESS DATA ===
 
@@ -129,6 +129,29 @@ class IntrustionEnv(gym.Env):
 
         pass
 
-# === Define the agent ===
+# === DEFINE THE AGENT ===
+
+# Considering that we have defined the environment in which the agent will be trained, we can now define the agent itself.
+# We will be using the DQN algorithm from the stable_baselines3 library, which is a popular reinforcement learning algorithm that combines 
+# Q-learning with deep neural networks to learn optimal policies in complex environments.
+
+# In this scenario, Monitor will be used in order to easily generate training logs and visualize the agent's performance over time.
+env = Monitor(IntrustionEnv(inputData_scaled, answer))
+
+# We will be using a simple multi-layer perceptron (MLP) policy for our DQN agent, which is suitable for environments with 
+# continuous observation spaces like ours.
+model = DQN('MlpPolicy', env, verbose=1, learning_rate=0.001)
+
+# The number of steps is ajustable, but we will start with 20,000 steps to allow the agent to learn effectively without taking too long to train.
+# In the final thesis, the number of steps will be increased to 500,000.
+model.learn(total_timesteps=20000)
+
+# We save the agent so that we can load it for lated evaluation and testing without having to retrain it from scratch.
+model.save("ids_dqn_agent")
+
+# Consdering that I will integrate the AI itself in a real-time protection sysytem, once I analyze a HTTP request,
+# the data will be preprocessed in the same way as the training data and then fed into the trained DQN agent 
+# to get a prediction on whether the traffic is normal or an attack.
+joblib.dump(scaler, 'scaler_ids.pkl')
 
 # === Evaluation === 
