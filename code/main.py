@@ -25,7 +25,7 @@ data.replace([np.inf, -np.inf], np.nan, inplace=True)
 data.dropna(inplace=True)
 
 # Encode the labels in a binary format: 0 for normal traffic and 1 for any kind of attack 
-answer = data.loc[:, 'Attack Type'].apply(lambda x: 0 if x == 'Normal Traffic' else 1) 
+answer = data.loc[:, 'Attack Type'].apply(lambda x: 0 if x == 'Normal Traffic' else 1).values
 
 # Drop the last column named 'Attack Type'
 inputData = data.drop('Attack Type', axis=1)
@@ -60,6 +60,7 @@ class IntrustionEnv(gym.Env):
         self.labels = labels
         self.maxSteps = maxSteps
         self.current_step = 0
+        self.steps_taken = 0
         self.action_space = spaces.Discrete(2)
         self.observation_space = spaces.Box(low=0, high=1, shape=(features.shape[1],), dtype=np.float32)
 
@@ -85,9 +86,10 @@ class IntrustionEnv(gym.Env):
 
         # After the reward is calculated, we move to the next step in the environment by incrementing the current step counter.
         self.current_step += 1
+        self.steps_taken += 1
 
         # We also check if we have reached the maximum number of steps allowed in the environment, which is defined by the maxSteps parameter.
-        done = self.current_step >= self.maxSteps
+        done = self.steps_taken >= self.maxSteps
 
         # If we did not reach the maximum number of steps, we return the next observation from the features dataset.
         if not done:
@@ -96,7 +98,7 @@ class IntrustionEnv(gym.Env):
         else:
             next_observation = np.zeros(self.features.shape[1])
             
-        return np.array(next_observation, dtype=np.float32), reward, done, False, {}
+        return np.array(next_observation, dtype=np.float32), reward, False, done, {}
 
     def reset(self, seed=None, options=None):
 
@@ -110,6 +112,7 @@ class IntrustionEnv(gym.Env):
         super().reset(seed=seed)
         max_limit = len(self.features) - self.maxSteps - 1
         self.current_step = np.random.randint(0, max_limit)
+        self.steps_taken = 0
         first_observation = self.features[self.current_step]
         return np.array(first_observation, dtype=np.float32), {}
 
@@ -140,18 +143,19 @@ env = Monitor(IntrustionEnv(inputData_scaled, answer))
 
 # We will be using a simple multi-layer perceptron (MLP) policy for our DQN agent, which is suitable for environments with 
 # continuous observation spaces like ours.
-model = DQN('MlpPolicy', env, verbose=1, learning_rate=0.001)
+model = DQN('MlpPolicy', env, verbose=1, learning_rate=0.001, gamma=0.0)
 
 # The number of steps is ajustable, but we will start with 20,000 steps to allow the agent to learn effectively without taking too long to train.
 # In the final thesis, the number of steps will be increased to 500,000.
+print("Training the DQN agent...")
 model.learn(total_timesteps=20000)
 
 # We save the agent so that we can load it for lated evaluation and testing without having to retrain it from scratch.
-model.save("ids_dqn_agent")
+model.save("generated/ids_dqn_agent")
 
 # Consdering that I will integrate the AI itself in a real-time protection sysytem, once I analyze a HTTP request,
 # the data will be preprocessed in the same way as the training data and then fed into the trained DQN agent 
 # to get a prediction on whether the traffic is normal or an attack.
-joblib.dump(scaler, 'scaler_ids.pkl')
+joblib.dump(scaler, 'generated/scaler_ids.pkl')
 
 # === Evaluation === 
