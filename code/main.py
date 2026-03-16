@@ -132,6 +132,54 @@ class IntrustionEnv(gym.Env):
 
         pass
 
+from stable_baselines3.common.callbacks import BaseCallback
+import matplotlib.pyplot as plt
+
+class TrainingMetricsCallback(BaseCallback):
+    def __init__(self, eval_env, eval_freq=1000, verbose=0):
+        super(TrainingMetricsCallback, self).__init__(verbose)
+        self.eval_env = eval_env
+        self.eval_freq = eval_freq
+        
+        # Aici vom stoca datele pentru grafic
+        self.steps = []
+        self.rewards = []
+        self.accuracies = []
+
+    def _on_step(self) -> bool:
+        # Evaluăm modelul la fiecare 'eval_freq' pași
+        if self.n_calls % self.eval_freq == 0:
+            # Rulăm un episod de testare pentru a vedea performanța curentă
+            obs, _ = self.eval_env.reset()
+            done = False
+            total_reward = 0
+            correct_predictions = 0
+            total_steps = 0
+            
+            while not done:
+                action, _ = self.model.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, _ = self.eval_env.step(action)
+                done = terminated or truncated
+                
+                total_reward += reward
+                total_steps += 1
+                
+                # În mediul tău, dacă primește +1 înseamnă că a ghicit corect
+                if reward == 1.0:
+                    correct_predictions += 1
+                    
+            accuracy = correct_predictions / total_steps if total_steps > 0 else 0
+            
+            # Salvăm metricile
+            self.steps.append(self.num_timesteps)
+            self.rewards.append(total_reward)
+            self.accuracies.append(accuracy)
+            
+            if self.verbose > 0:
+                print(f"Step: {self.num_timesteps} | Reward: {total_reward} | Accuracy: {accuracy:.2f}")
+                
+        return True
+
 # === DEFINE THE AGENT ===
 
 # Considering that we have defined the environment in which the agent will be trained, we can now define the agent itself.
@@ -145,10 +193,16 @@ env = Monitor(IntrustionEnv(inputData_scaled, answer))
 # continuous observation spaces like ours.
 model = DQN('MlpPolicy', env, verbose=1, learning_rate=0.001, gamma=0.0)
 
+# Creăm o instanță separată a mediului doar pentru evaluările din timpul antrenamentului
+eval_environment = IntrustionEnv(inputData_scaled, answer)
+
+# Inițializăm callback-ul (va face o evaluare la fiecare 1000 de pași)
+metrics_callback = TrainingMetricsCallback(eval_env=eval_environment, eval_freq=1000, verbose=1)
+
 # The number of steps is ajustable, but we will start with 20,000 steps to allow the agent to learn effectively without taking too long to train.
 # In the final thesis, the number of steps will be increased to 500,000.
 print("Training the DQN agent...")
-model.learn(total_timesteps=20000)
+model.learn(total_timesteps=500000, callback=metrics_callback)
 
 # We save the agent so that we can load it for lated evaluation and testing without having to retrain it from scratch.
 model.save("generated/ids_dqn_agent")
@@ -158,4 +212,71 @@ model.save("generated/ids_dqn_agent")
 # to get a prediction on whether the traffic is normal or an attack.
 joblib.dump(scaler, 'generated/scaler_ids.pkl')
 
-# === Evaluation === 
+# === EVALUATION === 
+
+# After training the agent, we can evaluate its performance on a test set to see how well it has learned to classify normal traffic and attacks.
+# We will use the same CICIDS2017 dataset for evaluation, but we will split it
+# into a training set and a test set to ensure that the agent is evaluated on unseen data.
+
+# In case we do not want to train the agent from scratch, we can load the previously saved model and scaler to perform evaluation on the test set.
+# model = DQN.load("generated/ids_dqn_agent")
+
+# True labels, 0 for Normal and 1 for Attack
+true_labels = answer
+
+# Here we will save the agents predictions
+agent_predictions = []
+
+# Trecem TOATE datele deodată prin model (vectorizat). 
+# PyTorch va calcula predicțiile pentru toate pachetele simultan!
+
+agent_predictions, _states = model.predict(inputData_scaled, deterministic=True) 
+
+# After we have collected the agent's predictions for all instances in the test set,
+# we can generate a classification report to evaluate the performance of the agent.
+report = classification_report(true_labels, agent_predictions, target_names=['Normal Traffic', 'Attack'])
+print(report)
+
+confusionMatrix = confusion_matrix(true_labels, agent_predictions)
+disp = ConfusionMatrixDisplay(confusion_matrix=confusionMatrix, display_labels=['Normal Traffic', 'Attack'])
+
+fig, ax = plt.subplots(figsize=(8, 6))
+disp.plot(cmap=plt.cm.Blues, ax=ax)
+plt.title("Matricea de Confuzie - DQN IDS")
+
+plt.savefig("generated/confusion_matrix.png", dpi=300, bbox_inches='tight')
+
+plt.show()
+
+# === Generarea Graficului de Evoluție ===
+
+fig, ax1 = plt.subplots(figsize=(10, 6))
+
+# Axa Y din stânga - pentru Recompensă
+color = 'tab:blue'
+ax1.set_xlabel('Pași de Antrenament')
+ax1.set_ylabel('Recompensă pe Episod', color=color)
+ax1.plot(metrics_callback.steps, metrics_callback.rewards, color=color, linewidth=2, marker='o', label='Recompensă')
+ax1.tick_params(axis='y', labelcolor=color)
+
+# Axa Y din dreapta - pentru Acuratețe
+ax2 = ax1.twinx()  
+color = 'tab:green'
+ax2.set_ylabel('Acuratețe', color=color)
+ax2.plot(metrics_callback.steps, metrics_callback.accuracies, color=color, linewidth=2, marker='s', label='Acuratețe')
+ax2.tick_params(axis='y', labelcolor=color)
+
+# Adăugăm un titlu și combinăm legendele
+plt.title('Evoluția Recompensei și Acurateței în timpul Antrenamentului')
+fig.tight_layout()
+
+# Punem legenda sus în stânga
+lines_1, labels_1 = ax1.get_legend_handles_labels()
+lines_2, labels_2 = ax2.get_legend_handles_labels()
+ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
+
+# Salvăm graficul
+plt.savefig("generated/training_evolution.png", dpi=300, bbox_inches='tight')
+print("Graficul evoluției a fost salvat în 'generated/training_evolution.png'.")
+
+plt.show()
