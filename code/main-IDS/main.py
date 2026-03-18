@@ -202,7 +202,7 @@ metrics_callback = TrainingMetricsCallback(eval_env=eval_environment, eval_freq=
 # The number of steps is ajustable, but we will start with 20,000 steps to allow the agent to learn effectively without taking too long to train.
 # In the final thesis, the number of steps will be increased to 500,000.
 print("Training the DQN agent...")
-model.learn(total_timesteps=500000, callback=metrics_callback)
+model.learn(total_timesteps=100000, callback=metrics_callback)
 
 # We save the agent so that we can load it for lated evaluation and testing without having to retrain it from scratch.
 model.save("generated/ids_dqn_agent")
@@ -210,7 +210,7 @@ model.save("generated/ids_dqn_agent")
 # Consdering that I will integrate the AI itself in a real-time protection sysytem, once I analyze a HTTP request,
 # the data will be preprocessed in the same way as the training data and then fed into the trained DQN agent 
 # to get a prediction on whether the traffic is normal or an attack.
-joblib.dump(scaler, 'generated/scaler_ids.pkl')
+# joblib.dump(scaler, 'generated/scaler_ids.pkl')
 
 # === EVALUATION === 
 
@@ -250,14 +250,7 @@ plt.show()
 
 # === Generarea Graficului de Evoluție ===
 
-fig, ax1 = plt.subplots(figsize=(10, 6))
-
-# Axa Y din stânga - pentru Recompensă
-color = 'tab:blue'
-ax1.set_xlabel('Pași de Antrenament')
-ax1.set_ylabel('Recompensă pe Episod', color=color)
-ax1.plot(metrics_callback.steps, metrics_callback.rewards, color=color, linewidth=2, marker='o', label='Recompensă')
-ax1.tick_params(axis='y', labelcolor=color)
+fig, ax1 = plt.subplots(figsize=(12, 8))
 
 # Axa Y din dreapta - pentru Acuratețe
 ax2 = ax1.twinx()  
