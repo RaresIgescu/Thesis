@@ -80,9 +80,9 @@ class IntrustionEnv(gym.Env):
         if(action == true_label):
             reward = 1.0
         elif(action == 0 and true_label == 1):
-            reward = -1.0
-        elif(action == 1 and true_label == 0):
             reward = -2.0
+        elif(action == 1 and true_label == 0):
+            reward = -1.0
 
         # After the reward is calculated, we move to the next step in the environment by incrementing the current step counter.
         self.current_step += 1
@@ -110,11 +110,15 @@ class IntrustionEnv(gym.Env):
         '''
 
         super().reset(seed=seed)
-        max_limit = len(self.features) - self.maxSteps - 1
-        self.current_step = np.random.randint(0, max_limit)
+        # Force ~50% of episodes to start on an attack sample
+        if np.random.random() < 0.5:
+            attack_indices = np.where(self.labels == 1)[0]
+            self.current_step = np.random.choice(attack_indices[:-self.maxSteps])
+        else:
+            max_limit = len(self.features) - self.maxSteps - 1
+            self.current_step = np.random.randint(0, max_limit)
         self.steps_taken = 0
-        first_observation = self.features[self.current_step]
-        return np.array(first_observation, dtype=np.float32), {}
+        return np.array(self.features[self.current_step], dtype=np.float32), {}
 
     def render(self):
         
@@ -191,8 +195,13 @@ env = Monitor(IntrustionEnv(inputData_scaled, answer))
 
 # We will be using a simple multi-layer perceptron (MLP) policy for our DQN agent, which is suitable for environments with 
 # continuous observation spaces like ours.
-model = DQN('MlpPolicy', env, verbose=1, learning_rate=0.001, gamma=0.0)
-
+model = DQN('MlpPolicy', env, verbose=1,
+            learning_rate=0.001,
+            gamma=0.95,
+            exploration_fraction=0.3,      # explore for 30% of training
+            exploration_final_eps=0.05,    # settle at 5% random actions
+            policy_kwargs=dict(net_arch=[256, 256, 128]))
+ 
 # Creăm o instanță separată a mediului doar pentru evaluările din timpul antrenamentului
 eval_environment = IntrustionEnv(inputData_scaled, answer)
 
@@ -202,7 +211,7 @@ metrics_callback = TrainingMetricsCallback(eval_env=eval_environment, eval_freq=
 # The number of steps is ajustable, but we will start with 20,000 steps to allow the agent to learn effectively without taking too long to train.
 # In the final thesis, the number of steps will be increased to 500,000.
 print("Training the DQN agent...")
-model.learn(total_timesteps=100000, callback=metrics_callback)
+model.learn(total_timesteps=500000, callback=metrics_callback)
 
 # We save the agent so that we can load it for lated evaluation and testing without having to retrain it from scratch.
 model.save("generated/ids_dqn_agent")
@@ -237,39 +246,232 @@ agent_predictions, _states = model.predict(inputData_scaled, deterministic=True)
 report = classification_report(true_labels, agent_predictions, target_names=['Normal Traffic', 'Attack'])
 print(report)
 
-confusionMatrix = confusion_matrix(true_labels, agent_predictions)
-disp = ConfusionMatrixDisplay(confusion_matrix=confusionMatrix, display_labels=['Normal Traffic', 'Attack'])
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+from matplotlib.colors import LinearSegmentedColormap
 
-fig, ax = plt.subplots(figsize=(8, 6))
-disp.plot(cmap=plt.cm.Blues, ax=ax)
-plt.title("Matricea de Confuzie - DQN IDS")
+# ============================================================
+# REAL VALUES FROM TRAINING
+# ============================================================
 
-plt.savefig("generated/confusion_matrix.png", dpi=300, bbox_inches='tight')
+# Training curves — convert lists to numpy arrays for math operations
+steps   = np.array(metrics_callback.steps)
+raw_acc = np.array(metrics_callback.accuracies)
+raw_rew = np.array(metrics_callback.rewards)
 
+# Confusion matrix — directly from sklearn
+conf_matrix = confusion_matrix(true_labels, agent_predictions)
+
+# Per-class metrics — output_dict=True lets us index into the report
+report_dict = classification_report(true_labels, agent_predictions,
+                                    target_names=['Normal Traffic', 'Attack'],
+                                    output_dict=True)
+metrics = {
+    'Normal Traffic': {
+        'Precision': report_dict['Normal Traffic']['precision'],
+        'Recall':    report_dict['Normal Traffic']['recall'],
+        'F1':        report_dict['Normal Traffic']['f1-score'],
+    },
+    'Attack': {
+        'Precision': report_dict['Attack']['precision'],
+        'Recall':    report_dict['Attack']['recall'],
+        'F1':        report_dict['Attack']['f1-score'],
+    },
+}
+
+# ============================================================
+# PLOT CONFIGURATION
+# ============================================================
+
+BLUE   = '#185FA5'
+GREEN  = '#1D9E75'
+CORAL  = '#D85A30'
+AMBER  = '#BA7517'
+PURPLE = '#534AB7'
+GRAY   = '#888780'
+
+plt.rcParams.update({
+    'font.family': 'sans-serif',
+    'axes.spines.top': False,
+    'axes.spines.right': False,
+    'axes.grid': True,
+    'grid.alpha': 0.25,
+    'grid.linestyle': '--',
+    'figure.facecolor': 'white',
+    'axes.facecolor': '#F8F8F8',
+})
+
+fig = plt.figure(figsize=(16, 18))
+fig.suptitle('DQN Intrusion Detection System — Training & Evaluation Report',
+             fontsize=16, fontweight='bold', y=0.98)
+
+gs = gridspec.GridSpec(3, 2, figure=fig, hspace=0.45, wspace=0.35)
+
+# ============================================================
+# 1. CLASS DISTRIBUTION (bar chart)
+# ============================================================
+ax1 = fig.add_subplot(gs[0, 0])
+
+labels = list(data['Attack Type'].value_counts().to_dict().keys())
+counts = list(data['Attack Type'].value_counts().to_dict().values())
+colors_dist = [BLUE if l == 'Normal Traffic' else CORAL for l in labels]
+
+bars = ax1.bar(labels, counts, color=colors_dist, edgecolor='white', linewidth=0.8, width=0.6)
+ax1.set_title('Class Distribution — CICIDS2017', fontweight='bold', pad=10)
+ax1.set_ylabel('Sample count')
+ax1.set_xticks(range(len(labels)))
+ax1.set_xticklabels(labels, rotation=25, ha='right', fontsize=9)
+
+for bar, count in zip(bars, counts):
+    ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 200,
+             f'{count:,}', ha='center', va='bottom', fontsize=8, color=GRAY)
+
+# ============================================================
+# 2. REWARD STRUCTURE
+# ============================================================
+ax2 = fig.add_subplot(gs[0, 1])
+
+reward_labels = ['Correct\nnormal (0→0)', 'Correct\nattack (1→1)',
+                 'Missed\nattack (0→1)', 'False\nalarm (1→0)']
+reward_values = [1, 1, -1, -2]
+reward_colors = [GREEN, GREEN, CORAL, '#993C1D']
+
+bars2 = ax2.bar(reward_labels, reward_values, color=reward_colors,
+                edgecolor='white', linewidth=0.8, width=0.55)
+ax2.axhline(0, color='black', linewidth=0.8, alpha=0.5)
+ax2.set_title('Reward Structure', fontweight='bold', pad=10)
+ax2.set_ylabel('Reward value')
+ax2.set_ylim(-2.7, 1.7)
+
+for bar, val in zip(bars2, reward_values):
+    offset = 0.08 if val >= 0 else -0.18
+    ax2.text(bar.get_x() + bar.get_width() / 2, val + offset,
+             f'{val:+}', ha='center', va='bottom', fontsize=11,
+             fontweight='bold', color='white')
+
+# ============================================================
+# 3. TRAINING ACCURACY CURVE
+# ============================================================
+ax3 = fig.add_subplot(gs[1, :])
+
+ax3.plot(steps / 1000, raw_acc * 100, color=BLUE, linewidth=2, label='Accuracy per eval')
+
+window = 5
+smoothed = np.convolve(raw_acc, np.ones(window) / window, mode='valid')
+smooth_steps = steps[window - 1:] / 1000
+ax3.plot(smooth_steps, smoothed * 100, color=PURPLE, linewidth=2.5,
+         linestyle='--', label=f'Smoothed (window={window})')
+
+ax3.fill_between(steps / 1000, raw_acc * 100, alpha=0.1, color=BLUE)
+ax3.set_title('Training Evolution — Accuracy over Timesteps', fontweight='bold', pad=10)
+ax3.set_xlabel('Timesteps (thousands)')
+ax3.set_ylabel('Accuracy (%)')
+ax3.set_ylim(40, 102)
+ax3.legend(loc='lower right', framealpha=0.9)
+
+final_acc = raw_acc[-1] * 100
+ax3.annotate(f'Final: {final_acc:.1f}%',
+             xy=(steps[-1] / 1000, final_acc),
+             xytext=(-40, -20), textcoords='offset points',
+             arrowprops=dict(arrowstyle='->', color=BLUE, lw=1.5),
+             fontsize=9, color=BLUE)
+
+# ============================================================
+# 4. REWARD CURVE
+# ============================================================
+ax4 = fig.add_subplot(gs[2, 0])
+
+ax4.plot(steps / 1000, raw_rew, color=GREEN, linewidth=2, alpha=0.6, label='Episode reward')
+smoothed_rew = np.convolve(raw_rew, np.ones(window) / window, mode='valid')
+ax4.plot(steps[window - 1:] / 1000, smoothed_rew, color='#085041',
+         linewidth=2.5, linestyle='--', label='Smoothed')
+ax4.fill_between(steps / 1000, raw_rew, alpha=0.12, color=GREEN)
+ax4.axhline(0, color='black', linewidth=0.7, alpha=0.4, linestyle=':')
+ax4.set_title('Reward per Episode during Training', fontweight='bold', pad=10)
+ax4.set_xlabel('Timesteps (thousands)')
+ax4.set_ylabel('Total reward')
+ax4.legend(loc='lower right', framealpha=0.9, fontsize=9)
+
+# ============================================================
+# 5. CONFUSION MATRIX (heatmap)
+# ============================================================
+ax5 = fig.add_subplot(gs[2, 1])
+
+cmap = LinearSegmentedColormap.from_list('blue_white', ['#E6F1FB', '#185FA5'])
+im = ax5.imshow(conf_matrix, cmap=cmap, aspect='auto')
+
+tick_labels = ['Normal\nTraffic', 'Attack']
+ax5.set_xticks([0, 1])
+ax5.set_yticks([0, 1])
+ax5.set_xticklabels(tick_labels, fontsize=10)
+ax5.set_yticklabels(tick_labels, fontsize=10)
+ax5.set_xlabel('Predicted label', fontsize=11)
+ax5.set_ylabel('True label', fontsize=11)
+ax5.set_title('Confusion Matrix', fontweight='bold', pad=10)
+ax5.spines[:].set_visible(False)
+
+total = conf_matrix.sum()
+for i in range(2):
+    for j in range(2):
+        val = conf_matrix[i, j]
+        pct = val / total * 100
+        text_color = 'white' if conf_matrix[i, j] > conf_matrix.max() / 2 else '#0C447C'
+        ax5.text(j, i, f'{val:,}\n({pct:.1f}%)',
+                 ha='center', va='center', fontsize=11,
+                 fontweight='bold', color=text_color)
+
+cell_labels = [['TN', 'FP'], ['FN', 'TP']]
+label_colors = [['#1D9E75', '#D85A30'], ['#D85A30', '#1D9E75']]
+for i in range(2):
+    for j in range(2):
+        ax5.text(j, i - 0.35, cell_labels[i][j],
+                 ha='center', va='center', fontsize=9,
+                 color=label_colors[i][j], fontweight='bold')
+
+plt.colorbar(im, ax=ax5, fraction=0.046, pad=0.04)
+
+# ============================================================
+# SAVE
+# ============================================================
+plt.savefig('ids_dqn_report.png', dpi=150, bbox_inches='tight', facecolor='white')
+print("Saved: ids_dqn_report.png")
 plt.show()
 
-# === Generarea Graficului de Evoluție ===
 
-fig, ax1 = plt.subplots(figsize=(12, 8))
+# ============================================================
+# BONUS: Per-class precision / recall / F1 (separate figure)
+# ============================================================
 
-# Axa Y din dreapta - pentru Acuratețe
-ax2 = ax1.twinx()  
-color = 'tab:green'
-ax2.set_ylabel('Acuratețe', color=color)
-ax2.plot(metrics_callback.steps, metrics_callback.accuracies, color=color, linewidth=2, marker='s', label='Acuratețe')
-ax2.tick_params(axis='y', labelcolor=color)
+fig2, ax6 = plt.subplots(figsize=(8, 5))
+fig2.patch.set_facecolor('white')
+ax6.set_facecolor('#F8F8F8')
 
-# Adăugăm un titlu și combinăm legendele
-plt.title('Evoluția Recompensei și Acurateței în timpul Antrenamentului')
-fig.tight_layout()
+classes = list(metrics.keys())
+metric_names = ['Precision', 'Recall', 'F1']
+metric_colors = [BLUE, GREEN, AMBER]
+x = np.arange(len(classes))
+width = 0.25
 
-# Punem legenda sus în stânga
-lines_1, labels_1 = ax1.get_legend_handles_labels()
-lines_2, labels_2 = ax2.get_legend_handles_labels()
-ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left')
+for i, (metric_name, color) in enumerate(zip(metric_names, metric_colors)):
+    vals = [metrics[cls][metric_name] * 100 for cls in classes]
+    bars = ax6.bar(x + i * width, vals, width, label=metric_name,
+                   color=color, edgecolor='white', linewidth=0.8)
+    for bar, val in zip(bars, vals):
+        ax6.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
+                 f'{val:.1f}%', ha='center', va='bottom', fontsize=9, color=GRAY)
 
-# Salvăm graficul
-plt.savefig("generated/training_evolution.png", dpi=300, bbox_inches='tight')
-print("Graficul evoluției a fost salvat în 'generated/training_evolution.png'.")
+ax6.set_title('Per-class Precision, Recall & F1', fontweight='bold', pad=10)
+ax6.set_ylabel('Score (%)')
+ax6.set_ylim(80, 102)
+ax6.set_xticks(x + width)
+ax6.set_xticklabels(classes, fontsize=11)
+ax6.legend(framealpha=0.9)
+ax6.spines['top'].set_visible(False)
+ax6.spines['right'].set_visible(False)
+ax6.grid(axis='y', alpha=0.25, linestyle='--')
 
+plt.tight_layout()
+plt.savefig('ids_dqn_metrics.png', dpi=150, bbox_inches='tight', facecolor='white')
+print("Saved: ids_dqn_metrics.png")
 plt.show()
