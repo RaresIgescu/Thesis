@@ -254,7 +254,6 @@ from matplotlib.colors import LinearSegmentedColormap
 # ============================================================
 # REAL VALUES FROM TRAINING
 # ============================================================
-
 # Training curves — convert lists to numpy arrays for math operations
 steps   = np.array(metrics_callback.steps)
 raw_acc = np.array(metrics_callback.accuracies)
@@ -302,114 +301,74 @@ plt.rcParams.update({
     'axes.facecolor': '#F8F8F8',
 })
 
-fig = plt.figure(figsize=(16, 18))
+fig = plt.figure(figsize=(16, 12))
 fig.suptitle('DQN Intrusion Detection System — Training & Evaluation Report',
              fontsize=16, fontweight='bold', y=0.98)
 
-gs = gridspec.GridSpec(3, 2, figure=fig, hspace=0.45, wspace=0.35)
+# 2 rows: top row is full-width accuracy curve, bottom row is reward + confusion matrix
+gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.45, wspace=0.35)
+
+window = 25
 
 # ============================================================
-# 1. CLASS DISTRIBUTION (bar chart)
+# 1. TRAINING ACCURACY CURVE (full width, top row)
 # ============================================================
-ax1 = fig.add_subplot(gs[0, 0])
+ax1 = fig.add_subplot(gs[0, :])
 
-labels = list(data['Attack Type'].value_counts().to_dict().keys())
-counts = list(data['Attack Type'].value_counts().to_dict().values())
-colors_dist = [BLUE if l == 'Normal Traffic' else CORAL for l in labels]
+ax1.plot(steps / 1000, raw_acc * 100, color=BLUE, linewidth=2, label='Accuracy per eval')
 
-bars = ax1.bar(labels, counts, color=colors_dist, edgecolor='white', linewidth=0.8, width=0.6)
-ax1.set_title('Class Distribution — CICIDS2017', fontweight='bold', pad=10)
-ax1.set_ylabel('Sample count')
-ax1.set_xticks(range(len(labels)))
-ax1.set_xticklabels(labels, rotation=25, ha='right', fontsize=9)
-
-for bar, count in zip(bars, counts):
-    ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 200,
-             f'{count:,}', ha='center', va='bottom', fontsize=8, color=GRAY)
-
-# ============================================================
-# 2. REWARD STRUCTURE
-# ============================================================
-ax2 = fig.add_subplot(gs[0, 1])
-
-reward_labels = ['Correct\nnormal (0→0)', 'Correct\nattack (1→1)',
-                 'Missed\nattack (0→1)', 'False\nalarm (1→0)']
-reward_values = [1, 1, -1, -2]
-reward_colors = [GREEN, GREEN, CORAL, '#993C1D']
-
-bars2 = ax2.bar(reward_labels, reward_values, color=reward_colors,
-                edgecolor='white', linewidth=0.8, width=0.55)
-ax2.axhline(0, color='black', linewidth=0.8, alpha=0.5)
-ax2.set_title('Reward Structure', fontweight='bold', pad=10)
-ax2.set_ylabel('Reward value')
-ax2.set_ylim(-2.7, 1.7)
-
-for bar, val in zip(bars2, reward_values):
-    offset = 0.08 if val >= 0 else -0.18
-    ax2.text(bar.get_x() + bar.get_width() / 2, val + offset,
-             f'{val:+}', ha='center', va='bottom', fontsize=11,
-             fontweight='bold', color='white')
-
-# ============================================================
-# 3. TRAINING ACCURACY CURVE
-# ============================================================
-ax3 = fig.add_subplot(gs[1, :])
-
-ax3.plot(steps / 1000, raw_acc * 100, color=BLUE, linewidth=2, label='Accuracy per eval')
-
-window = 5
-smoothed = np.convolve(raw_acc, np.ones(window) / window, mode='valid')
+smoothed_acc = np.convolve(raw_acc, np.ones(window) / window, mode='valid')
 smooth_steps = steps[window - 1:] / 1000
-ax3.plot(smooth_steps, smoothed * 100, color=PURPLE, linewidth=2.5,
+ax1.plot(smooth_steps, smoothed_acc * 100, color=GREEN, linewidth=2.5,
          linestyle='--', label=f'Smoothed (window={window})')
 
-ax3.fill_between(steps / 1000, raw_acc * 100, alpha=0.1, color=BLUE)
-ax3.set_title('Training Evolution — Accuracy over Timesteps', fontweight='bold', pad=10)
-ax3.set_xlabel('Timesteps (thousands)')
-ax3.set_ylabel('Accuracy (%)')
-ax3.set_ylim(40, 102)
-ax3.legend(loc='lower right', framealpha=0.9)
+ax1.fill_between(steps / 1000, raw_acc * 100, alpha=0.1, color=BLUE)
+ax1.set_title('Training Evolution — Accuracy over Timesteps', fontweight='bold', pad=10)
+ax1.set_xlabel('Timesteps (thousands)')
+ax1.set_ylabel('Accuracy (%)')
+ax1.set_ylim(40, 102)
+ax1.legend(loc='lower right', framealpha=0.9)
 
 final_acc = raw_acc[-1] * 100
-ax3.annotate(f'Final: {final_acc:.1f}%',
+ax1.annotate(f'Final: {final_acc:.1f}%',
              xy=(steps[-1] / 1000, final_acc),
              xytext=(-40, -20), textcoords='offset points',
              arrowprops=dict(arrowstyle='->', color=BLUE, lw=1.5),
              fontsize=9, color=BLUE)
 
 # ============================================================
-# 4. REWARD CURVE
+# 2. REWARD CURVE (bottom left)
 # ============================================================
-ax4 = fig.add_subplot(gs[2, 0])
+ax2 = fig.add_subplot(gs[1, 0])
 
-ax4.plot(steps / 1000, raw_rew, color=GREEN, linewidth=2, alpha=0.6, label='Episode reward')
+ax2.plot(steps / 1000, raw_rew, color=GREEN, linewidth=2, alpha=0.6, label='Episode reward')
 smoothed_rew = np.convolve(raw_rew, np.ones(window) / window, mode='valid')
-ax4.plot(steps[window - 1:] / 1000, smoothed_rew, color='#085041',
+ax2.plot(steps[window - 1:] / 1000, smoothed_rew, color='#085041',
          linewidth=2.5, linestyle='--', label='Smoothed')
-ax4.fill_between(steps / 1000, raw_rew, alpha=0.12, color=GREEN)
-ax4.axhline(0, color='black', linewidth=0.7, alpha=0.4, linestyle=':')
-ax4.set_title('Reward per Episode during Training', fontweight='bold', pad=10)
-ax4.set_xlabel('Timesteps (thousands)')
-ax4.set_ylabel('Total reward')
-ax4.legend(loc='lower right', framealpha=0.9, fontsize=9)
+ax2.fill_between(steps / 1000, raw_rew, alpha=0.12, color=GREEN)
+ax2.axhline(0, color='black', linewidth=0.7, alpha=0.4, linestyle=':')
+ax2.set_title('Reward per Episode during Training', fontweight='bold', pad=10)
+ax2.set_xlabel('Timesteps (thousands)')
+ax2.set_ylabel('Total reward')
+ax2.legend(loc='lower right', framealpha=0.9, fontsize=9)
 
 # ============================================================
-# 5. CONFUSION MATRIX (heatmap)
+# 3. CONFUSION MATRIX (bottom right)
 # ============================================================
-ax5 = fig.add_subplot(gs[2, 1])
+ax3 = fig.add_subplot(gs[1, 1])
 
 cmap = LinearSegmentedColormap.from_list('blue_white', ['#E6F1FB', '#185FA5'])
-im = ax5.imshow(conf_matrix, cmap=cmap, aspect='auto')
+im = ax3.imshow(conf_matrix, cmap=cmap, aspect='auto')
 
 tick_labels = ['Normal\nTraffic', 'Attack']
-ax5.set_xticks([0, 1])
-ax5.set_yticks([0, 1])
-ax5.set_xticklabels(tick_labels, fontsize=10)
-ax5.set_yticklabels(tick_labels, fontsize=10)
-ax5.set_xlabel('Predicted label', fontsize=11)
-ax5.set_ylabel('True label', fontsize=11)
-ax5.set_title('Confusion Matrix', fontweight='bold', pad=10)
-ax5.spines[:].set_visible(False)
+ax3.set_xticks([0, 1])
+ax3.set_yticks([0, 1])
+ax3.set_xticklabels(tick_labels, fontsize=10)
+ax3.set_yticklabels(tick_labels, fontsize=10)
+ax3.set_xlabel('Predicted label', fontsize=11)
+ax3.set_ylabel('True label', fontsize=11)
+ax3.set_title('Confusion Matrix', fontweight='bold', pad=10)
+ax3.spines[:].set_visible(False)
 
 total = conf_matrix.sum()
 for i in range(2):
@@ -417,7 +376,7 @@ for i in range(2):
         val = conf_matrix[i, j]
         pct = val / total * 100
         text_color = 'white' if conf_matrix[i, j] > conf_matrix.max() / 2 else '#0C447C'
-        ax5.text(j, i, f'{val:,}\n({pct:.1f}%)',
+        ax3.text(j, i, f'{val:,}\n({pct:.1f}%)',
                  ha='center', va='center', fontsize=11,
                  fontweight='bold', color=text_color)
 
@@ -425,11 +384,11 @@ cell_labels = [['TN', 'FP'], ['FN', 'TP']]
 label_colors = [['#1D9E75', '#D85A30'], ['#D85A30', '#1D9E75']]
 for i in range(2):
     for j in range(2):
-        ax5.text(j, i - 0.35, cell_labels[i][j],
+        ax3.text(j, i - 0.35, cell_labels[i][j],
                  ha='center', va='center', fontsize=9,
                  color=label_colors[i][j], fontweight='bold')
 
-plt.colorbar(im, ax=ax5, fraction=0.046, pad=0.04)
+plt.colorbar(im, ax=ax3, fraction=0.046, pad=0.04)
 
 # ============================================================
 # SAVE
@@ -440,12 +399,12 @@ plt.show()
 
 
 # ============================================================
-# BONUS: Per-class precision / recall / F1 (separate figure)
+# SEPARATE FIGURE: Per-class Precision / Recall / F1
 # ============================================================
 
-fig2, ax6 = plt.subplots(figsize=(8, 5))
+fig2, ax4 = plt.subplots(figsize=(8, 5))
 fig2.patch.set_facecolor('white')
-ax6.set_facecolor('#F8F8F8')
+ax4.set_facecolor('#F8F8F8')
 
 classes = list(metrics.keys())
 metric_names = ['Precision', 'Recall', 'F1']
@@ -455,21 +414,21 @@ width = 0.25
 
 for i, (metric_name, color) in enumerate(zip(metric_names, metric_colors)):
     vals = [metrics[cls][metric_name] * 100 for cls in classes]
-    bars = ax6.bar(x + i * width, vals, width, label=metric_name,
+    bars = ax4.bar(x + i * width, vals, width, label=metric_name,
                    color=color, edgecolor='white', linewidth=0.8)
     for bar, val in zip(bars, vals):
-        ax6.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
+        ax4.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
                  f'{val:.1f}%', ha='center', va='bottom', fontsize=9, color=GRAY)
 
-ax6.set_title('Per-class Precision, Recall & F1', fontweight='bold', pad=10)
-ax6.set_ylabel('Score (%)')
-ax6.set_ylim(80, 102)
-ax6.set_xticks(x + width)
-ax6.set_xticklabels(classes, fontsize=11)
-ax6.legend(framealpha=0.9)
-ax6.spines['top'].set_visible(False)
-ax6.spines['right'].set_visible(False)
-ax6.grid(axis='y', alpha=0.25, linestyle='--')
+ax4.set_title('Per-class Precision, Recall & F1', fontweight='bold', pad=10)
+ax4.set_ylabel('Score (%)')
+ax4.set_ylim(80, 102)
+ax4.set_xticks(x + width)
+ax4.set_xticklabels(classes, fontsize=11)
+ax4.legend(framealpha=0.9)
+ax4.spines['top'].set_visible(False)
+ax4.spines['right'].set_visible(False)
+ax4.grid(axis='y', alpha=0.25, linestyle='--')
 
 plt.tight_layout()
 plt.savefig('ids_dqn_metrics.png', dpi=150, bbox_inches='tight', facecolor='white')
