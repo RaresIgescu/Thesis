@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+
+SEED = 42
+np.random.seed(SEED)
 import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3 import DQN
@@ -30,15 +34,23 @@ answer = data.loc[:, 'Attack Type'].apply(lambda x: 0 if x == 'Normal Traffic' e
 # Drop the last column named 'Attack Type'
 inputData = data.drop('Attack Type', axis=1)
 
+# Split into train/test before scaling to avoid data leakage.
+# stratify=answer ensures both splits have the same class distribution.
+X_train, X_test, y_train, y_test = train_test_split(
+    inputData.values, answer, test_size=0.2, random_state=42, stratify=answer
+)
+
 # We need to scale the input data to ensure that all features are on the same scale, which can help the AI agent learn more effectively.
+# The scaler is fitted only on the training set; the test set is transformed without fitting to prevent leakage.
 scaler = MinMaxScaler()
-inputData_scaled = scaler.fit_transform(inputData)
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled  = scaler.transform(X_test)
 
 # Print the distribution of attack types and the range of the scaled input data to verify that the preprocessing steps have been applied correctly.
-# The first print statement will show us how many instances of normal traffic and different attack types are present in the dataset, 
+# The first print statement will show us how many instances of normal traffic and different attack types are present in the dataset,
 # While the second print statement will confirm that the input data has been scaled to a range between 0 and 1.
 print(data.loc[:, 'Attack Type'].value_counts())
-print(inputData_scaled.min(), inputData_scaled.max())
+print(X_train_scaled.min(), X_train_scaled.max())
 
 # === DEFINE THE ENVIRONMENT ===
 
@@ -82,7 +94,7 @@ class IntrustionEnv(gym.Env):
         elif(action == 0 and true_label == 1):
             reward = -2.0
         elif(action == 1 and true_label == 0):
-            reward = -1.0
+            reward = -1.3
 
         # After the reward is calculated, we move to the next step in the environment by incrementing the current step counter.
         self.current_step += 1
@@ -110,13 +122,14 @@ class IntrustionEnv(gym.Env):
         '''
 
         super().reset(seed=seed)
+        rng = self.np_random  # seeded RNG provided by Gymnasium
         # Force ~50% of episodes to start on an attack sample
-        if np.random.random() < 0.5:
+        if rng.random() < 0.5:
             attack_indices = np.where(self.labels == 1)[0]
-            self.current_step = np.random.choice(attack_indices[:-self.maxSteps])
+            self.current_step = rng.choice(attack_indices[:-self.maxSteps])
         else:
             max_limit = len(self.features) - self.maxSteps - 1
-            self.current_step = np.random.randint(0, max_limit)
+            self.current_step = rng.integers(0, max_limit)
         self.steps_taken = 0
         return np.array(self.features[self.current_step], dtype=np.float32), {}
 
@@ -191,7 +204,7 @@ class TrainingMetricsCallback(BaseCallback):
 # Q-learning with deep neural networks to learn optimal policies in complex environments.
 
 # In this scenario, Monitor will be used in order to easily generate training logs and visualize the agent's performance over time.
-env = Monitor(IntrustionEnv(inputData_scaled, answer))
+env = Monitor(IntrustionEnv(X_train_scaled, y_train))
 
 # We will be using a simple multi-layer perceptron (MLP) policy for our DQN agent, which is suitable for environments with 
 # continuous observation spaces like ours.
@@ -203,7 +216,7 @@ model = DQN('MlpPolicy', env, verbose=1,
             policy_kwargs=dict(net_arch=[256, 256, 128]))
  
 # Creăm o instanță separată a mediului doar pentru evaluările din timpul antrenamentului
-eval_environment = IntrustionEnv(inputData_scaled, answer)
+eval_environment = IntrustionEnv(X_train_scaled, y_train)
 
 # Inițializăm callback-ul (va face o evaluare la fiecare 1000 de pași)
 metrics_callback = TrainingMetricsCallback(eval_env=eval_environment, eval_freq=1000, verbose=1)
@@ -211,6 +224,7 @@ metrics_callback = TrainingMetricsCallback(eval_env=eval_environment, eval_freq=
 # The number of steps is ajustable, but we will start with 20,000 steps to allow the agent to learn effectively without taking too long to train.
 # In the final thesis, the number of steps will be increased to 500,000.
 print("Training the DQN agent...")
+model.set_random_seed(SEED)
 model.learn(total_timesteps=500000, callback=metrics_callback)
 
 # We save the agent so that we can load it for lated evaluation and testing without having to retrain it from scratch.
@@ -230,16 +244,10 @@ model.save("generated/ids_dqn_agent")
 # In case we do not want to train the agent from scratch, we can load the previously saved model and scaler to perform evaluation on the test set.
 # model = DQN.load("generated/ids_dqn_agent")
 
-# True labels, 0 for Normal and 1 for Attack
-true_labels = answer
+# True labels and predictions use the held-out test set only
+true_labels = y_test
 
-# Here we will save the agents predictions
-agent_predictions = []
-
-# Trecem TOATE datele deodată prin model (vectorizat). 
-# PyTorch va calcula predicțiile pentru toate pachetele simultan!
-
-agent_predictions, _states = model.predict(inputData_scaled, deterministic=True) 
+agent_predictions, _states = model.predict(X_test_scaled, deterministic=True)
 
 # After we have collected the agent's predictions for all instances in the test set,
 # we can generate a classification report to evaluate the performance of the agent.
