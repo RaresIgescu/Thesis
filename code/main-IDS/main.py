@@ -45,6 +45,7 @@ X_train, X_test, y_train, y_test = train_test_split(
 scaler = MinMaxScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled  = scaler.transform(X_test)
+scaler.feature_names_in_ = None  # suppress feature-name warnings during real-time inference
 
 # Print the distribution of attack types and the range of the scaled input data to verify that the preprocessing steps have been applied correctly.
 # The first print statement will show us how many instances of normal traffic and different attack types are present in the dataset,
@@ -230,10 +231,9 @@ model.learn(total_timesteps=500000, callback=metrics_callback)
 # We save the agent so that we can load it for lated evaluation and testing without having to retrain it from scratch.
 model.save("generated/ids_dqn_agent")
 
-# Consdering that I will integrate the AI itself in a real-time protection sysytem, once I analyze a HTTP request,
-# the data will be preprocessed in the same way as the training data and then fed into the trained DQN agent 
-# to get a prediction on whether the traffic is normal or an attack.
-# joblib.dump(scaler, 'generated/scaler_ids.pkl')
+# Save the scaler so the real-time inference script uses identical normalization.
+joblib.dump(scaler, 'generated/scaler_ids.pkl')
+print("Saved: generated/scaler_ids.pkl")
 
 # === EVALUATION === 
 
