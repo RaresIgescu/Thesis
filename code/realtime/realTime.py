@@ -18,9 +18,12 @@ import csv
 import time
 import threading
 import collections
+import smtplib
 from io import StringIO
 from pathlib import Path
 from datetime import datetime
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 import numpy as np
 import pandas as pd
@@ -42,6 +45,12 @@ DASHBOARD_HOST = "127.0.0.1"
 DASHBOARD_PORT = 5000
 MAX_DASHBOARD_ROWS = 200
 POLL_INTERVAL_SEC = 3
+
+# Email alert configuration
+EMAIL_ADDRESS   = "raresigescu@gmail.com"
+EMAIL_PASSWORD  = "brrt mwkr lffe upfv"  
+EMAIL_RECIPIENT = "raresigescu@gmail.com"
+ALERT_COOLDOWN_SECONDS = 60  # minimum gap between emails to avoid flooding
 
 # ============================================================
 # CANONICAL FEATURE ORDER (must exactly match the training CSV)
@@ -134,6 +143,7 @@ stats = {
     'start_time': datetime.now().isoformat(timespec='seconds'),
 }
 stats_lock = threading.Lock()
+last_alert_time = 0.0
 
 # ============================================================
 # FEATURE ALIGNMENT
@@ -173,7 +183,48 @@ def extract_metadata(df: pd.DataFrame) -> list:
 
 
 # ============================================================
-# DISPATCH — terminal + log + dashboard
+# EMAIL ALERT
+# ============================================================
+
+def send_attack_alert(meta: dict) -> None:
+    global last_alert_time
+    current_time = time.time()
+    if current_time - last_alert_time < ALERT_COOLDOWN_SECONDS:
+        return
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    subject = f"[IDS ALERT] Attack Detected — {meta['src_ip']} → {meta['dst_ip']}"
+    body = (
+        f"INTRUSION DETECTION SYSTEM — SECURITY ALERT\n"
+        f"{'=' * 45}\n\n"
+        f"Timestamp   : {timestamp}\n"
+        f"Source IP   : {meta['src_ip']}\n"
+        f"Destination : {meta['dst_ip']}:{meta['dst_port']}\n"
+        f"Protocol    : {meta['protocol']}\n"
+        f"Status      : ATTACK DETECTED\n\n"
+        f"The DQN agent has classified this flow as malicious traffic.\n"
+        f"Please review the network logs immediately.\n\n"
+        f"-- IDS System (DQN Agent)"
+    )
+    msg = MIMEMultipart()
+    msg["From"]    = EMAIL_ADDRESS
+    msg["To"]      = EMAIL_RECIPIENT
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_ADDRESS, EMAIL_RECIPIENT, msg.as_string())
+        print(f"{Fore.YELLOW}[EMAIL] Alert sent for {meta['src_ip']} → {meta['dst_ip']}{Style.RESET_ALL}")
+        last_alert_time = current_time
+    except Exception as e:
+        print(f"{Fore.YELLOW}[EMAIL ERROR] {e}{Style.RESET_ALL}")
+
+
+# ============================================================
+# DISPATCH — terminal + log + dashboard + email
 # ============================================================
 
 def dispatch(meta: dict, pred: int, log_writer, log_file):
@@ -205,76 +256,347 @@ def dispatch(meta: dict, pred: int, log_writer, log_file):
         stats['total']  += 1
         stats['attacks' if pred == 1 else 'normal'] += 1
 
+    if pred == 1:
+        send_attack_alert(meta)
+
 
 # ============================================================
 # DASHBOARD
 # ============================================================
 
 DASHBOARD_HTML = r"""<!doctype html>
-<html><head><meta charset="utf-8"><title>IDS Dashboard</title>
+<html><head>
+<meta charset="utf-8">
+<title>IDS Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-         margin: 0; padding: 24px; background: #F5F4EF; color: #2C2C2A; }
-  h1 { margin: 0 0 4px; font-weight: 500; font-size: 22px; }
-  .sub { color: #888780; font-size: 13px; margin-bottom: 20px; }
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-  .card { background: white; padding: 14px 16px; border-radius: 10px;
-          border-left: 3px solid #888780; }
-  .card.attack { border-color: #D85A30; }
-  .card.normal { border-color: #1D9E75; }
-  .card.rate   { border-color: #185FA5; }
-  .val { font-size: 26px; font-weight: 500; margin: 2px 0; }
-  .lbl { font-size: 11px; text-transform: uppercase; color: #5F5E5A; letter-spacing: 0.5px; }
-  table { width: 100%; background: white; border-collapse: collapse;
-          border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-  th, td { padding: 9px 14px; text-align: left; font-size: 13px; border-bottom: 1px solid #EFEEE8; }
-  th { background: #FAFAF6; font-weight: 500; color: #5F5E5A; font-size: 11px;
-       text-transform: uppercase; letter-spacing: 0.5px; }
+  :root {
+    --bg:        #000000;
+    --surface:   #0d0d0d;
+    --border:    #1e1e1e;
+    --muted:     #444;
+    --text:      #c8c8c8;
+    --dim:       #555;
+
+    --total-c:   #8ab4cc;
+    --normal-c:  #6aab7e;
+    --attack-c:  #c0514a;
+    --rate-c:    #b08a3e;
+
+    --total-bg:  rgba(138,180,204,0.07);
+    --normal-bg: rgba(106,171,126,0.07);
+    --attack-bg: rgba(192,81,74,0.07);
+    --rate-bg:   rgba(176,138,62,0.07);
+
+    --attack-row: rgba(192,81,74,0.06);
+    --normal-row: rgba(106,171,126,0.04);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 48px 24px 48px;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 900px;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  h1 {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 18px;
+    font-weight: 400;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #e0e0e0;
+  }
+
+  .pulse-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--normal-c);
+    margin-right: 8px;
+    vertical-align: middle;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(106,171,126,0.6); }
+    50%       { opacity: 0.6; box-shadow: 0 0 0 4px rgba(106,171,126,0); }
+  }
+
+  .sub {
+    font-size: 12px;
+    color: var(--dim);
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Divider ── */
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 18px 0 22px;
+  }
+
+  /* ── Stat cards ── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+    opacity: 1;
+  }
+
+  .card.total  { border-top: 2px solid var(--total-c);  }
+  .card.total::before  { background: var(--total-bg); }
+
+  .card.normal { border-top: 2px solid var(--normal-c); }
+  .card.normal::before { background: var(--normal-bg); }
+
+  .card.attack { border-top: 2px solid var(--attack-c); }
+  .card.attack::before { background: var(--attack-bg); }
+
+  .card.rate   { border-top: 2px solid var(--rate-c);   }
+  .card.rate::before   { background: var(--rate-bg); }
+
+  .lbl {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 8px;
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  .val {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 28px;
+    line-height: 1;
+    letter-spacing: 0.03em;
+  }
+
+  .card.total  .val { color: var(--total-c); }
+  .card.normal .val { color: var(--normal-c); }
+  .card.attack .val { color: var(--attack-c); }
+  .card.rate   .val { color: var(--rate-c); }
+
+  /* ── Table ── */
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead th {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    padding: 11px 16px;
+    text-align: left;
+    background: #080808;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+
+  tbody td {
+    padding: 9px 16px;
+    border-bottom: 1px solid #141414;
+    font-size: 12px;
+    font-family: 'Share Tech Mono', monospace;
+    color: var(--dim);
+    transition: background 0.15s;
+  }
+
   tbody tr:last-child td { border-bottom: none; }
-  tr.attack td { color: #A32D2D; }
-  .badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
-  tr.attack .badge { background: #FCEBEB; color: #A32D2D; }
-  tr.normal .badge { background: #EAF3DE; color: #3B6D11; }
-  .note { color: #888780; font-size: 12px; margin-top: 14px; }
-  .empty { padding: 40px; text-align: center; color: #888780; }
-</style></head><body>
-<h1>IDS Real-Time Dashboard</h1>
-<div class="sub">Started <span id="start"></span> · auto-refreshes every 2s</div>
-<div class="stats">
-  <div class="card"><div class="lbl">Total flows</div><div class="val" id="total">0</div></div>
-  <div class="card normal"><div class="lbl">Normal</div><div class="val" id="normal">0</div></div>
-  <div class="card attack"><div class="lbl">Attacks</div><div class="val" id="attacks">0</div></div>
-  <div class="card rate"><div class="lbl">Attack rate</div><div class="val" id="rate">0%</div></div>
+
+  tbody tr:hover td { background: rgba(255,255,255,0.02); }
+
+  tbody tr.attack td { color: #a0524e; }
+  tbody tr.normal td { color: #537a5d; }
+
+  tbody tr.attack { background: var(--attack-row); }
+  tbody tr.normal { background: var(--normal-row); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 3px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    font-weight: 400;
+  }
+
+  tr.attack .badge {
+    background: rgba(192,81,74,0.15);
+    color: #c0514a;
+    border: 1px solid rgba(192,81,74,0.25);
+  }
+
+  tr.normal .badge {
+    background: rgba(106,171,126,0.12);
+    color: #6aab7e;
+    border: 1px solid rgba(106,171,126,0.2);
+  }
+
+  .empty {
+    text-align: center;
+    padding: 48px;
+    color: var(--muted);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── Footer ── */
+  .note {
+    margin-top: 14px;
+    font-size: 11px;
+    color: #333;
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.04em;
+    text-align: center;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 600px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    h1 { font-size: 15px; }
+    .val { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1><span class="pulse-dot"></span>IDS Real-Time Dashboard</h1>
+    <div class="sub">Started <span id="start">—</span> &nbsp;·&nbsp; refreshes every 3s</div>
+  </header>
+
+  <div class="divider"></div>
+
+  <div class="stats">
+    <div class="card total">
+      <div class="lbl">Total Flows</div>
+      <div class="val" id="total">0</div>
+    </div>
+    <div class="card normal">
+      <div class="lbl">Normal</div>
+      <div class="val" id="normal">0</div>
+    </div>
+    <div class="card attack">
+      <div class="lbl">Attacks</div>
+      <div class="val" id="attacks">0</div>
+    </div>
+    <div class="card rate">
+      <div class="lbl">Attack Rate</div>
+      <div class="val" id="rate">0.0%</div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Source</th>
+          <th>Destination</th>
+          <th>Port</th>
+          <th>Proto</th>
+          <th>Verdict</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td class="empty" colspan="6">Waiting for flows…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">Showing up to 50 most recent flows · Full history in logs/detections.csv</div>
+
 </div>
-<table>
-  <thead><tr><th>Time</th><th>Source</th><th>Destination</th><th>Port</th><th>Proto</th><th>Verdict</th></tr></thead>
-  <tbody id="tbody"><tr><td class="empty" colspan="6">Waiting for flows…</td></tr></tbody>
-</table>
-<div class="note">Showing up to 50 most recent flows. Full history in logs/detections.csv.</div>
+
 <script>
 async function update() {
   try {
     const r = await fetch('/recent');
     const d = await r.json();
-    document.getElementById('start').textContent = d.stats.start_time;
-    document.getElementById('total').textContent = d.stats.total;
-    document.getElementById('normal').textContent = d.stats.normal;
+    document.getElementById('start').textContent   = d.stats.start_time;
+    document.getElementById('total').textContent   = d.stats.total;
+    document.getElementById('normal').textContent  = d.stats.normal;
     document.getElementById('attacks').textContent = d.stats.attacks;
-    const rate = d.stats.total ? (d.stats.attacks / d.stats.total * 100).toFixed(1) : '0.0';
+    const rate = d.stats.total
+      ? (d.stats.attacks / d.stats.total * 100).toFixed(1)
+      : '0.0';
     document.getElementById('rate').textContent = rate + '%';
+
     const tb = document.getElementById('tbody');
     if (!d.detections.length) return;
     tb.innerHTML = d.detections.map(x => `
       <tr class="${x.prediction === 'ATTACK' ? 'attack' : 'normal'}">
-        <td>${x.local_time}</td><td>${x.src_ip}</td><td>${x.dst_ip}</td>
-        <td>${x.dst_port}</td><td>${x.protocol}</td>
+        <td>${x.local_time}</td>
+        <td>${x.src_ip}</td>
+        <td>${x.dst_ip}</td>
+        <td>${x.dst_port}</td>
+        <td>${x.protocol}</td>
         <td><span class="badge">${x.prediction}</span></td>
       </tr>`).join('');
   } catch (e) { console.error(e); }
 }
-update(); setInterval(update, 2000);
-</script></body></html>
+
+update();
+setInterval(update, 2000);
+</script>
+</body>
+</html>
 """
 
 
