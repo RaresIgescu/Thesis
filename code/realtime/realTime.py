@@ -1,18 +1,3 @@
-"""
-Real-time IDS detector — reads CICFlowMeter CSV output, runs the trained
-DQN model, and fans the result out to terminal, log file, and web dashboard.
-
-Pipeline:
-    CICFlowMeter (running separately) --> CSV file in WATCH_FOLDER
-                                                |
-                                                v
-    polling loop --> align features --> MinMaxScaler --> DQN.predict()
-                                                |
-                             +------------------+------------------+
-                             v                  v                  v
-                       Terminal print      logs/detections.csv   Flask @ :5000
-"""
-
 import os
 import csv
 import time
