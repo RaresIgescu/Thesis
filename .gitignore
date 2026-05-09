@@ -1,5 +1,6 @@
-code/data/cicids2017_cleaned.csv
+code/data/
 generated/
 captures/
 CICFlowMeter-4.0/
 logs/
+.env
