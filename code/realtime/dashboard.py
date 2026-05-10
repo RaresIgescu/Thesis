@@ -1,7 +1,6 @@
 import threading
 import numpy as np
 import pandas as pd
-from colorama import Fore, Style
 from sklearn.model_selection import train_test_split
 
 DASHBOARD_HTML = r"""<!doctype html>
@@ -347,7 +346,7 @@ def start_dashboard(detection_buffer, stats, stats_lock, watch_folder, host, por
     try:
         from flask import Flask, jsonify
     except ImportError:
-        print(f"{Fore.YELLOW}[!] Flask not installed, dashboard disabled.{Style.RESET_ALL}")
+        print("[!] Flask not installed, dashboard disabled.")
         return
 
     app = Flask(__name__)
@@ -399,4 +398,4 @@ def start_dashboard(detection_buffer, stats, stats_lock, watch_folder, host, por
         daemon=True,
     )
     thread.start()
-    print(f"{Fore.GREEN}[+] Dashboard at http://{host}:{port}{Style.RESET_ALL}")
+    print(f"[+] Dashboard at http://{host}:{port}")
