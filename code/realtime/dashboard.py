@@ -10,25 +10,25 @@ DASHBOARD_HTML = r"""<!doctype html>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:        #000000;
-    --surface:   #0d0d0d;
-    --border:    #1e1e1e;
-    --muted:     #444;
-    --text:      #c8c8c8;
-    --dim:       #555;
+    --bg:        #f5f6f8;
+    --surface:   #ffffff;
+    --border:    #dde0e4;
+    --muted:     #999;
+    --text:      #2d2d2d;
+    --dim:       #666;
 
-    --total-c:   #8ab4cc;
-    --normal-c:  #6aab7e;
-    --attack-c:  #c0514a;
-    --rate-c:    #b08a3e;
+    --total-c:   #2e7fa8;
+    --normal-c:  #2e7d47;
+    --attack-c:  #b83530;
+    --rate-c:    #8a6018;
 
-    --total-bg:  rgba(138,180,204,0.07);
-    --normal-bg: rgba(106,171,126,0.07);
-    --attack-bg: rgba(192,81,74,0.07);
-    --rate-bg:   rgba(176,138,62,0.07);
+    --total-bg:  rgba(46,127,168,0.07);
+    --normal-bg: rgba(46,125,71,0.07);
+    --attack-bg: rgba(184,53,48,0.07);
+    --rate-bg:   rgba(138,96,24,0.07);
 
-    --attack-row: rgba(192,81,74,0.06);
-    --normal-row: rgba(106,171,126,0.04);
+    --attack-row: rgba(184,53,48,0.05);
+    --normal-row: rgba(46,125,71,0.04);
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -67,7 +67,7 @@ DASHBOARD_HTML = r"""<!doctype html>
     font-weight: 400;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #e0e0e0;
+    color: #1a1a1a;
   }
 
   .pulse-dot {
@@ -180,14 +180,14 @@ DASHBOARD_HTML = r"""<!doctype html>
     color: var(--muted);
     padding: 11px 16px;
     text-align: left;
-    background: #080808;
+    background: #f5f5f7;
     border-bottom: 1px solid var(--border);
     font-weight: 400;
   }
 
   tbody td {
     padding: 9px 16px;
-    border-bottom: 1px solid #141414;
+    border-bottom: 1px solid #ebebeb;
     font-size: 12px;
     font-family: 'Share Tech Mono', monospace;
     color: var(--dim);
@@ -196,10 +196,10 @@ DASHBOARD_HTML = r"""<!doctype html>
 
   tbody tr:last-child td { border-bottom: none; }
 
-  tbody tr:hover td { background: rgba(255,255,255,0.02); }
+  tbody tr:hover td { background: rgba(0,0,0,0.03); }
 
-  tbody tr.attack td { color: #a0524e; }
-  tbody tr.normal td { color: #537a5d; }
+  tbody tr.attack td { color: #963028; }
+  tbody tr.normal td { color: #25683b; }
 
   tbody tr.attack { background: var(--attack-row); }
   tbody tr.normal { background: var(--normal-row); }
@@ -238,7 +238,7 @@ DASHBOARD_HTML = r"""<!doctype html>
   .note {
     margin-top: 14px;
     font-size: 11px;
-    color: #333;
+    color: #aaa;
     font-family: 'Share Tech Mono', monospace;
     letter-spacing: 0.04em;
     text-align: center;
