@@ -344,7 +344,7 @@ setInterval(update, 2000);
 
 def start_dashboard(detection_buffer, stats, stats_lock, watch_folder, host, port):
     try:
-        from flask import Flask, jsonify
+        from flask import Flask, jsonify, request
     except ImportError:
         print("[!] Flask not installed, dashboard disabled.")
         return
@@ -382,13 +382,14 @@ def start_dashboard(detection_buffer, stats, stats_lock, watch_folder, host, por
             )
 
             attack_rows = test_f[test_l == 1].head(10).copy()
-            attack_rows['src_ip'] = '10.0.0.1'
-            attack_rows['dst_ip'] = '192.168.100.119'
-            attack_rows['src_port'] = 1234
+            attack_rows['src_ip'] = request.remote_addr
+            attack_rows['dst_ip'] = request.host.split(':')[0]
+            attack_rows['src_port'] = request.environ.get('REMOTE_PORT', 'N/A')
             attack_rows['protocol'] = 6
             attack_rows['timestamp'] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
 
-            attack_rows.to_csv(str(watch_folder / 'flows.csv'), index=False)
+            fname = f'inject_{int(pd.Timestamp.now().timestamp())}.csv'
+            attack_rows.to_csv(str(watch_folder / fname), index=False)
             return '<script>setTimeout(()=>location.href="/",3000)</script><p style="font-family:monospace;padding:20px">Injecting 10 attack flows — redirecting to dashboard...</p>'
         except Exception as e:
             return f'Error: {e}', 500
